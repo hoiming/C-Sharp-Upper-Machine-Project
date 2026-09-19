@@ -1,11 +1,11 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
 using EnvMonitor.Communication;
+using Microsoft.Extensions.Configuration;
+using Serilog;
 
 namespace EnvMonitor.App;
 
-/// <summary>
-/// Interaction logic for App.xaml
-/// </summary>
 public partial class App : Application
 {
 	private MainViewModel? _viewModel;
@@ -14,17 +14,46 @@ public partial class App : Application
 	{
 		base.OnStartup(e);
 
-		var client = new TcpClientService();
-		var device = new DeviceService(client);
-		_viewModel = new MainViewModel(client, device, Dispatcher);
+		Log.Logger = new LoggerConfiguration()
+			.MinimumLevel.Information()
+			.WriteTo.File(
+				Path.Combine(AppContext.BaseDirectory, "logs", "app-.log"),
+				rollingInterval: RollingInterval.Day,
+				retainedFileCountLimit: 14,
+				shared: true)
+			.CreateLogger();
 
-		MainWindow = new MainWindow(_viewModel);
-		MainWindow.Show();
+		try
+		{
+			var configuration = new ConfigurationBuilder()
+				.SetBasePath(AppContext.BaseDirectory)
+				.AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+				.Build();
+			var settings = configuration.Get<AppSettings>()
+				?? throw new InvalidOperationException("AppSettings could not be loaded.");
+			settings.Validate();
+			Log.Information("Application starting with device {Host}:{Port}", settings.Device.Host, settings.Device.Port);
+
+			var client = new TcpClientService();
+			var device = new DeviceService(client, settings.Device.RequestTimeoutMs);
+			_viewModel = new MainViewModel(client, device, Dispatcher, settings);
+
+			MainWindow = new MainWindow(_viewModel);
+			MainWindow.Show();
+		}
+		catch (Exception exception)
+		{
+			Log.Fatal(exception, "Application startup failed");
+			Log.CloseAndFlush();
+			throw;
+		}
 	}
 
 	protected override void OnExit(ExitEventArgs e)
 	{
 		_viewModel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		Log.Information("Application stopped");
+		Log.CloseAndFlush();
 		base.OnExit(e);
 	}
 }
