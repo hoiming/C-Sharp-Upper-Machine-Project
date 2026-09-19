@@ -199,7 +199,7 @@ public class SimulatorIntegrationTests
         await client.GetStream().WriteAsync(new Frame(0x02, 1, [0x01, 0x01]).Encode(), timeout.Token);
         var relayResponse = await ReadFrameAsync(client, timeout.Token);
         Assert.Equal(0x02, relayResponse.Command);
-        Assert.Equal(new byte[] { 0x01 }, relayResponse.Payload.ToArray());
+        Assert.Equal(new byte[] { 0x01, 0x01 }, relayResponse.Payload.ToArray());
 
         await client.GetStream().WriteAsync(new Frame(0x03, 2, []).Encode(), timeout.Token);
         var heartbeatResponse = await ReadFrameAsync(client, timeout.Token);
@@ -373,4 +373,91 @@ public class TcpClientServiceTests
 
         Assert.Equal(1, connectedCount);
     }
+}
+
+public class DeviceServiceTests
+{
+    [Fact]
+    public async Task ReadAsync_ParsesBigEndianScaledSensorValues()
+    {
+        var client = new FakeFrameClient((command, _, _, _) =>
+            Task.FromResult(new Frame(command, 1, [0xFF, 0x9C, 0x01, 0xF4, 0x03, 0xF5, 0x01])));
+        var service = new DeviceService(client);
+
+        var data = await service.ReadAsync();
+
+        Assert.Equal(-10.0, data.Temp);
+        Assert.Equal(50.0, data.Humidity);
+        Assert.Equal(101.3, data.Pressure);
+        Assert.Equal(1, data.Relay);
+    }
+
+    [Fact]
+    public async Task SetRelayAsync_SendsExpectedPayloadAndValidatesResponse()
+    {
+        ReadOnlyMemory<byte> sentPayload = default;
+        var client = new FakeFrameClient((command, payload, _, _) =>
+        {
+            sentPayload = payload;
+            return Task.FromResult(new Frame(command, 1, [0x01, 0x01]));
+        });
+        var service = new DeviceService(client);
+
+        await service.SetRelayAsync(1, true);
+
+        Assert.Equal(new byte[] { 0x01, 0x01 }, sentPayload.ToArray());
+    }
+
+    [Fact]
+    public async Task ReadAsync_InvalidPayloadLength_ThrowsInvalidDataException()
+    {
+        var client = new FakeFrameClient((command, _, _, _) =>
+            Task.FromResult(new Frame(command, 1, [0x00, 0xFA])));
+        var service = new DeviceService(client);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.ReadAsync());
+    }
+
+    [Fact]
+    public async Task HeartbeatAsync_ErrorResponse_ThrowsDeviceError()
+    {
+        var client = new FakeFrameClient((_, _, _, _) =>
+            Task.FromResult(new Frame(0x83, 1, [0x01])));
+        var service = new DeviceService(client);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.HeartbeatAsync());
+    }
+}
+
+file sealed class FakeFrameClient : IFrameClient
+{
+    private readonly Func<byte, ReadOnlyMemory<byte>, int, CancellationToken, Task<Frame>> _send;
+
+    public FakeFrameClient(Func<byte, ReadOnlyMemory<byte>, int, CancellationToken, Task<Frame>> send)
+    {
+        _send = send;
+    }
+
+    public int PendingCount => 0;
+
+    public event Action<ConnectionState>? ConnectionChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action<Frame>? UnsolicitedFrame
+    {
+        add { }
+        remove { }
+    }
+
+    public Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<Frame> SendAsync(byte command, ReadOnlyMemory<byte> payload, int timeoutMs, CancellationToken cancellationToken = default)
+        => _send(command, payload, timeoutMs, cancellationToken);
+
+    public Task DisconnectAsync() => Task.CompletedTask;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

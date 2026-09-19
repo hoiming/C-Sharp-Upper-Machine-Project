@@ -291,7 +291,7 @@ public sealed class VirtualDevice
         }
 
         _relay = request.Payload.Span[1];
-        return new Frame(request.Command, request.Sequence, [_relay]);
+        return new Frame(request.Command, request.Sequence, [request.Payload.Span[0], _relay]);
     }
 
     private static Frame Heartbeat(Frame request)
