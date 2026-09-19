@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>EnvMonitor 环境监控上位机 Demo 详细设计</title>
+    <style>
+          <h2>1. 文档范围</h2>
+          <p>
+            本文档根据当前仓库中的解决方案、项目文件、协议实现、TCP 服务、WPF
+            @page {
+              size: A4;
+              margin: 18mm 16mm 18mm 16mm;
+            }
+            * {
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+              color: #1f2937;
+              line-height: 1.65;
+              font-size: 10.5pt;
+            }
+            h1 {
+              color: #123b63;
+              font-size: 25pt;
+              margin: 0 0 8pt;
+            }
+            h2 {
+              color: #145a86;
+              font-size: 16pt;
+              border-bottom: 1px solid #bfd4e5;
+              padding-bottom: 4pt;
+              margin-top: 22pt;
+              page-break-after: avoid;
+            }
+            h3 {
+              color: #176b72;
+              font-size: 12.5pt;
+              margin-top: 15pt;
+      ----------------------+       +--------------------------+
+              page-break-after: avoid;
+            }
+            p {
+      ----------+-----------+       +------------+-------------+
+              margin: 5pt 0;
+            }
+      ----------------------------------------------------------+
+            .subtitle {
+              color: #64748b;
+      ----------------------------+-----------------------------+
+              margin-bottom: 22pt;
+            }
+      ----------------------------------------------------------+
+            .cover {
+              min-height: 235mm;
+      ----------------------------------------------------------+
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              page-break-after: always;
+            }
+            .meta {
+              border-left: 4px solid #2f80a8;
+              padding: 10pt 14pt;
+              background: #f1f7fa;
+              margin-top: 18pt;
+            }
+            pre {
+              background: #f3f6f8;
+              border: 1px solid #d8e2e8;
+              padding: 9pt;
+              white-space: pre-wrap;
+              font-family: Consolas, 'Cascadia Code', monospace;
+              font-size: 8.5pt;
+              line-height: 1.45;
+            }
+            code {
+              background: #eef3f5;
+              padding: 1pt 3pt;
+              font-family: Consolas, monospace;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 8pt 0 12pt;
+              font-size: 9pt;
+            }
+            th {
+              background: #145a86;
+              color: white;
+              text-align: left;
+            }
+            th,
+            td {
+              border: 1px solid #cbd5e1;
+              padding: 5pt 6pt;
+              vertical-align: top;
+            }
+            tr:nth-child(even) td {
+              background: #f8fafc;
+            }
+            .note {
+              background: #fff8e6;
+              border-left: 4px solid #d69e2e;
+              padding: 7pt 10pt;
+              margin: 10pt 0;
+            }
+            .risk {
+              background: #fff1f2;
+              border-left: 4px solid #c53030;
+              padding: 7pt 10pt;
+              margin: 10pt 0;
+            }
+            .pagebreak {
+              page-break-before: always;
+            }
+            ul,
+            ol {
+              margin-top: 4pt;
+            }
+            .footer {
+              color: #64748b;
+              font-size: 8pt;
+              margin-top: 20pt;
+              border-top: 1px solid #cbd5e1;
+              padding-top: 5pt;
+            }
+    </style>
+  </head>
+  <body>
+    <section class="cover">
+      <h1>EnvMonitor 环境监控上位机 Demo</h1>
+      <div class="subtitle">详细设计文档（基于当前代码反向推导）</div>
+      <div class="meta">
+        <p><strong>文档类型：</strong>代码反向设计文档</p>
+        <p><strong>目标框架：</strong>.NET 8 / WPF</p>
+        <p>
+          <strong>系统定位：</strong>无真实下位机条件下的 TCP
+          环境设备模拟与上位机演示系统
+        </p>
+        <p><strong>覆盖版本：</strong>当前 main 分支代码</p>
+        <p><strong>验证结果：</strong>30/30 测试通过，0 个错误</p>
+      </div>
+    </section>
+
+    <h2>1. 文档范围</h2>
+    <p>
+      本文档根据当前仓库中的解决方案、项目文件、协议实现、TCP 服务、WPF
+      ViewModel
+      和测试代码反向整理而成，描述当前代码实际行为，不把尚未实现的功能当作已完成能力。
+    </p>
+    <ul>
+      <li>解决方案与项目边界</li>
+      <li>TCP 二进制协议和 CRC16</li>
+      <li>帧拆包与错误恢复</li>
+      <li>模拟下位机和故障注入</li>
+      <li>上位机客户端、请求匹配、超时与重连</li>
+      <li>业务服务、WPF MVVM、轮询、报警和曲线</li>
+      <li>配置、日志、构建和测试</li>
+    </ul>
+
+    <h2>2. 系统目标</h2>
+    <p>
+      系统模拟一个环境传感器下位机，通过 TCP 让 WPF
+      上位机完成连接、命令交互、数据刷新和异常处理。
+    </p>
+    <ol>
+      <li>建立 TCP 连接。</li>
+      <li>发送读取、继电器和心跳命令。</li>
+      <li>接收并解析二进制帧。</li>
+      <li>处理半包、粘包、CRC 错误、超时和断线。</li>
+      <li>以 MVVM 方式显示传感器数据。</li>
+      <li>对温度、湿度超阈值进行状态报警。</li>
+      <li>显示最近两分钟温度曲线。</li>
+    </ol>
+
+    <h2>3. 总体架构</h2>
+    <pre>
++----------------------+       +--------------------------+
+| EnvMonitor.App       |       | EnvMonitor.Simulator     |
+| WPF + MVVM           |       | TCP virtual device      |
+| MainViewModel        |       | SimulatorServer         |
++----------+-----------+       +------------+-------------+
+           |                                 |
+           v                                 v
++----------------------------------------------------------+
+| EnvMonitor.Communication                                |
+| TcpClientService / DeviceService / IFrameClient         |
++----------------------------+-----------------------------+
+                             |
+                             v
++----------------------------------------------------------+
+| EnvMonitor.Protocol                                      |
+| Frame / Crc16 / FrameParser                             |
++----------------------------------------------------------+
+
+EnvMonitor.Tests 直接引用 Protocol、Communication、Simulator。</pre
+    >
+    <p>
+      依赖方向：<code>Communication -&gt; Protocol</code>，<code
+        >Simulator -&gt; Protocol</code
+      >，<code>App -&gt; Communication</code>，Tests
+      引用三层用于集成测试。Protocol 不依赖 TCP、WPF 或业务层。
+    </p>
+
+    <h2>4. 项目职责</h2>
+    <table>
+      <tr>
+        <th>项目</th>
+        <th>核心类型</th>
+        <th>职责</th>
+      </tr>
+      <tr>
+        <td>Protocol</td>
+        <td>Frame、Crc16、FrameParser</td>
+        <td>帧格式、CRC、拆包和错误恢复。</td>
+      </tr>
+      <tr>
+        <td>Communication</td>
+        <td>IFrameClient、TcpClientService、DeviceService、SensorData</td>
+        <td>TCP 可靠请求/响应、重连和强类型业务 API。</td>
+      </tr>
+      <tr>
+        <td>Simulator</td>
+        <td>SimulatorServer、VirtualDevice、FaultOptions</td>
+        <td>虚拟设备、动态数据和确定性故障注入。</td>
+      </tr>
+      <tr>
+        <td>App</td>
+        <td>App、MainViewModel、MainWindow</td>
+        <td>配置、日志、MVVM、轮询、报警和曲线。</td>
+      </tr>
+      <tr>
+        <td>Tests</td>
+        <td>xUnit 测试集</td>
+        <td>协议、通信、业务和异常场景验证。</td>
+      </tr>
+    </table>
+
+    <h2>5. 协议详细设计</h2>
+    <pre>
+偏移       长度       字段
+0          1          Header1 = 0xAA
+1          1          Header2 = 0x55
+2          2          Length，大端序
+4          1          Command
+5          2          Sequence，大端序
+7          N          Payload
+7 + N      2          CRC16，低字节在前</pre
+    >
+    <ul>
+      <li>总长范围为 9 到 1024。</li>
+      <li>CRC 覆盖 Header 到 Payload，不包含 CRC 本身。</li>
+      <li>
+        CRC 使用 Modbus 算法，初始值 <code>0xFFFF</code>，多项式
+        <code>0xA001</code>。
+      </li>
+      <li>正常响应复用请求 Command 和 Sequence。</li>
+      <li>
+        错误响应 Command 为请求 Command 按位或 <code>0x80</code>，Payload 为 1
+        字节 ErrorCode。
+      </li>
+    </ul>
+    <p>空读帧固定测试向量：</p>
+    <pre>AA 55 00 09 01 00 01 8E 93</pre>
+    <table>
+      <tr>
+        <th>命令</th>
+        <th>请求 Payload</th>
+        <th>成功响应 Payload</th>
+      </tr>
+      <tr>
+        <td><code>0x01 Read</code></td>
+        <td>空</td>
+        <td>
+          Temp Int16 BE、Humidity UInt16 BE、Pressure UInt16 BE，均除以 10，加
+          Relay Byte，共 7B
+        </td>
+      </tr>
+      <tr>
+        <td><code>0x02 SetRelay</code></td>
+        <td>Channel Byte、On Byte</td>
+        <td>Channel Byte、On Byte</td>
+      </tr>
+      <tr>
+        <td><code>0x03 Heartbeat</code></td>
+        <td>空</td>
+        <td>空</td>
+      </tr>
+    </table>
+    <p>
+      错误码：<code>0x01</code> 非法命令，<code>0x02</code> 非法 Payload，<code
+        >0x03</code
+      >
+      非法继电器通道。
+    </p>
+
+    <h2>6. 帧拆包设计</h2>
+    <p>
+      <code>FrameParser</code> 使用 <code>List&lt;byte&gt;</code> 缓存。Feed
+      流程是：追加数据、搜索
+      <code>AA 55</code>、丢弃前置垃圾、读取长度、等待完整帧、调用
+      Frame.Decode、成功后移除完整帧，失败时只丢弃一个候选帧头字节。
+    </p>
+    <p>
+      因此支持帧头拆分、完整帧拆分、多帧合并、CRC
+      错帧后恢复和非法长度后恢复。当前实现适合学习和演示，高吞吐场景可替换为环形缓冲区或
+      PipeReader。
+    </p>
+
+    <h2>7. 模拟器设计</h2>
+    <h3>7.1 生命周期</h3>
+    <p>
+      <code>StartAsync()</code> 创建 Loopback TcpListener；端口 0
+      由系统分配并暴露实际端口。每个客户端拥有独立 FrameParser 和处理任务。<code
+        >StopAsync()</code
+      >
+      取消服务器 CTS、停止 Listener、关闭客户端并等待 Accept 循环。
+    </p>
+    <h3>7.2 虚拟设备</h3>
+    <p>
+      VirtualDevice
+      在锁内处理请求，维护温度、湿度、压力和继电器状态。传感器初始值约为
+      25.0°C、48.0%、101.3kPa；Read 命令使用 Random.Shared
+      做小幅波动；继电器当前只支持 Channel 1。
+    </p>
+    <h3>7.3 故障注入</h3>
+    <table>
+      <tr>
+        <th>选项</th>
+        <th>行为</th>
+      </tr>
+      <tr>
+        <td>DropProbabilityPercent</td>
+        <td>按概率不回复。</td>
+      </tr>
+      <tr>
+        <td>ResponseDelay</td>
+        <td>异步延迟响应。</td>
+      </tr>
+      <tr>
+        <td>CloseAfter</td>
+        <td>连接建立后定时关闭。</td>
+      </tr>
+      <tr>
+        <td>CrcErrorResponseNumber</td>
+        <td>指定响应损坏 CRC。</td>
+      </tr>
+      <tr>
+        <td>FragmentResponses</td>
+        <td>一帧拆成两次写入。</td>
+      </tr>
+      <tr>
+        <td>CoalesceResponses</td>
+        <td>同一批次多帧合并写入。</td>
+      </tr>
+    </table>
+
+    <h2>8. 上位机通信设计</h2>
+    <h3>8.1 请求发送</h3>
+    <p>
+      <code>SendAsync()</code> 原子生成 Seq，创建带
+      <code>RunContinuationsAsynchronously</code> 的 TCS，放入 Pending
+      字典；使用 SemaphoreSlim
+      串行写流；等待响应或超时；在超时、取消或写失败时清理 Pending。
+    </p>
+    <h3>8.2 接收循环</h3>
+    <p>
+      NetworkStream 的每次读取都送入 FrameParser。Seq 匹配 Pending 时完成对应
+      TCS，否则触发 UnsolicitedFrame。CRC 错误由解析器丢弃，原请求最终超时。读到
+      0 或异常会完成未决请求并进入断线处理。
+    </p>
+    <h3>8.3 状态与重连</h3>
+    <p>
+      连接状态包括
+      Connecting、Connected、Disconnected、Reconnecting。意外断线启动唯一重连循环，等待
+      1、2、4、8 秒，最大 30 秒；重连使用新的 TcpClient、Stream 和 CTS。手动
+      DisconnectAsync 会取消重连并完成未决请求。
+    </p>
+
+    <h2>9. 业务服务设计</h2>
+    <p>
+      <code>DeviceService</code> 隔离 Frame 细节：ReadAsync 要求 7
+      字节并进行大端缩放；SetRelayAsync 检查 Channel 和状态回显；HeartbeatAsync
+      要求空响应。错误响应转换为 InvalidOperationException，非法长度或字段转换为
+      InvalidDataException。
+    </p>
+
+    <h2>10. WPF 与 MVVM</h2>
+    <p>
+      App 启动时加载 appsettings.json、校验配置、初始化 Serilog，并组装
+      TcpClientService、DeviceService、MainViewModel。MainWindow 只通过
+      DataContext 绑定 ViewModel。
+    </p>
+    <p>
+      MainViewModel 暴露状态、连接按钮、温湿压、继电器、报警状态、曲线数据以及
+      Connect、Reconnect、ToggleRelay 命令。DispatcherTimer 按配置周期轮询，使用
+      <code>_isPolling</code> 防止重入；断开时停止 Timer 并清空曲线。
+    </p>
+    <p>
+      温度超过配置阈值 30、湿度超过 70 时状态变为 Alarm，XAML DataTrigger
+      将对应数值变红；读取超时显示黄色状态。曲线保留最近 120 个 DateTimePoint。
+    </p>
+
+    <h2>11. 配置与日志</h2>
+    <pre>
+{
+  "Device": {
+    "Host": "127.0.0.1",
+    "Port": 9000,
+    "PollIntervalMs": 1000,
+    "RequestTimeoutMs": 1000
+  },
+  "Thresholds": { "Temperature": 30, "Humidity": 70 }
+}</pre
+    >
+    <p>
+      配置通过 PreserveNewest 复制到输出目录。Serilog 使用按天滚动文件，保留 14
+      个文件，路径为运行目录下的
+      <code>logs/app-日期.log</code
+      >。当前记录应用启动、连接、状态变化、轮询、超时、继电器和异常。
+    </p>
+
+    <h2>12. 测试与结果</h2>
+    <table>
+      <tr>
+        <th>测试层</th>
+        <th>覆盖内容</th>
+      </tr>
+      <tr>
+        <td>Protocol</td>
+        <td>CRC16、帧字节序、编解码、半包、粘包、垃圾和 CRC 恢复。</td>
+      </tr>
+      <tr>
+        <td>Simulator</td>
+        <td>Read、SetRelay、Heartbeat、动态数据和错误帧。</td>
+      </tr>
+      <tr>
+        <td>Communication</td>
+        <td>并发请求、Seq 匹配、超时、Pending 清理和自动重连。</td>
+      </tr>
+      <tr>
+        <td>DeviceService</td>
+        <td>大端解析、缩放、Payload 校验和错误响应。</td>
+      </tr>
+      <tr>
+        <td>Fault injection</td>
+        <td>丢帧、延迟、CRC 错、fragment、coalesce 和非法命令。</td>
+      </tr>
+    </table>
+    <p>
+      运行 <code>./build.ps1</code> 可执行 Release 构建和测试。当前结果为 30/30
+      通过、0 错误。LiveCharts 传递依赖仍产生 3 类 NU1701
+      警告：OpenTK、OpenTK.GLWpfControl、SkiaSharp.Views.WPF。
+    </p>
+
+    <h2>13. 运行与演示</h2>
+    <pre>
+dotnet run --project EnvMonitor.Simulator -- --port 9000
+dotnet run --project EnvMonitor.App</pre
+    >
+    <ol>
+      <li>启动模拟器和 WPF App。</li>
+      <li>点击 Connect，观察每秒数据刷新。</li>
+      <li>切换继电器并观察状态。</li>
+      <li>观察最近两分钟温度曲线。</li>
+      <li>使用 <code>--close-after 10</code> 验证重连。</li>
+      <li>
+        使用 <code>--drop 30</code> 或 <code>--delay 2000</code> 验证超时。
+      </li>
+      <li>修改阈值或数据范围观察报警。</li>
+    </ol>
+
+    <h2>14. 已知限制与风险</h2>
+    <div class="risk">
+      <strong>发布前需要关注：</strong>LiveCharts 依赖链存在
+      NU1701；发布前应确认目标机器运行时兼容性，或升级/替换图表包。
+    </div>
+    <ul>
+      <li>FrameParser 使用 List&lt;byte&gt;，高吞吐场景会有额外复制。</li>
+      <li>TCP 客户端没有 TLS、认证或设备身份校验。</li>
+      <li>WPF ViewModel 没有独立测试项目，主要依靠集成测试和构建验证。</li>
+      <li>日志使用 App 层 Serilog，Communication 层没有独立 ILogger 抽象。</li>
+      <li>模拟器随机波动只用于演示，不代表真实传感器噪声。</li>
+    </ul>
+
+    <h2>15. 发布检查清单</h2>
+    <ul>
+      <li>□ Release build 成功</li>
+      <li>□ 全部测试通过</li>
+      <li>□ 在干净目录启动模拟器和 WPF App</li>
+      <li>□ 修改端口配置后重启验证</li>
+      <li>□ 验证日志生成</li>
+      <li>□ 验证断线重连、超时和报警</li>
+      <li>□ 录制连接、刷新、曲线、继电器、重连、报警演示</li>
+      <li>□ 确认 NU1701 的发布结论</li>
+      <li>□ 再创建 v1.0 标签</li>
+    </ul>
+
+    <div class="footer">EnvMonitor 代码反向设计文档 · 生成于 2026-09-19</div>
+  </body>
+</html>
