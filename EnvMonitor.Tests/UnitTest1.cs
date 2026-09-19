@@ -1,5 +1,6 @@
 using EnvMonitor.Protocol;
 using EnvMonitor.Simulator;
+using EnvMonitor.Communication;
 using System.Net;
 using System.Net.Sockets;
 
@@ -263,5 +264,113 @@ public class SimulatorIntegrationTests
     private static ushort ReadUInt16(ReadOnlySpan<byte> bytes)
     {
         return (ushort)((bytes[0] << 8) | bytes[1]);
+    }
+}
+
+public class TcpClientServiceTests
+{
+    [Fact]
+    public async Task SendAsync_ReadCommand_ReturnsMatchedResponse()
+    {
+        await using var server = new SimulatorServer(0);
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        var response = await client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 1000);
+
+        Assert.Equal(0x01, response.Command);
+        Assert.Equal(7, response.Payload.Length);
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_ConcurrentRequests_MatchesEveryResponse()
+    {
+        await using var server = new SimulatorServer(0);
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 10)
+            .Select(_ => client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 2000)));
+
+        Assert.Equal(10, responses.Length);
+        Assert.All(responses, response => Assert.Equal(0x01, response.Command));
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_DroppedResponse_ThrowsTimeoutAndCleansPending()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { DropProbabilityPercent = 100 });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 100));
+
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_CompletesPendingRequest()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { DropProbabilityPercent = 100 });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        var pending = client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 5000);
+        await Task.Delay(50);
+        await client.DisconnectAsync();
+
+        await Assert.ThrowsAnyAsync<ObjectDisposedException>(() => pending);
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task UnexpectedDisconnect_AutomaticallyReconnects()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { CloseAfter = TimeSpan.FromMilliseconds(100) });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        var connectedAgain = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectedCount = 0;
+        client.ConnectionChanged += state =>
+        {
+            if (state == ConnectionState.Connected && Interlocked.Increment(ref connectedCount) > 1)
+            {
+                connectedAgain.TrySetResult(true);
+            }
+        };
+
+        await client.ConnectAsync("127.0.0.1", server.Port);
+        var completed = await Task.WhenAny(connectedAgain.Task, Task.Delay(TimeSpan.FromSeconds(4)));
+
+        Assert.Same(connectedAgain.Task, completed);
+        Assert.True(connectedCount >= 2);
+    }
+
+    [Fact]
+    public async Task ManualDisconnect_DoesNotStartReconnectLoop()
+    {
+        await using var server = new SimulatorServer(0);
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        var connectedCount = 0;
+        client.ConnectionChanged += state =>
+        {
+            if (state == ConnectionState.Connected)
+            {
+                Interlocked.Increment(ref connectedCount);
+            }
+        };
+
+        await client.ConnectAsync("127.0.0.1", server.Port);
+        await client.DisconnectAsync();
+        await Task.Delay(1200);
+
+        Assert.Equal(1, connectedCount);
     }
 }
