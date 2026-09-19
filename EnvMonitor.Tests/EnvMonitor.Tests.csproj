@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\EnvMonitor.Protocol\EnvMonitor.Protocol.csproj" />
     <ProjectReference Include="..\EnvMonitor.Communication\EnvMonitor.Communication.csproj" />
+    <ProjectReference Include="..\EnvMonitor.Simulator\EnvMonitor.Simulator.csproj" />
   </ItemGroup>
 
 </Project>
