@@ -239,6 +239,64 @@ public class SimulatorIntegrationTests
         Assert.Empty(parser.Feed(buffer[..bytesRead]).ToArray());
     }
 
+    [Fact]
+    public async Task FragmentOption_ClientStillReceivesResponse()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { FragmentResponses = true });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        var response = await client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 1000);
+
+        Assert.Equal(0x01, response.Command);
+        Assert.Equal(7, response.Payload.Length);
+    }
+
+    [Fact]
+    public async Task CoalesceOption_ParserReturnsBothResponses()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { CoalesceResponses = true });
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var requests = new Frame(0x01, 20, []).Encode()
+            .Concat(new Frame(0x01, 21, []).Encode())
+            .ToArray();
+        await client.GetStream().WriteAsync(requests, timeout.Token);
+
+        var parser = new FrameParser();
+        var buffer = new byte[512];
+        var frames = new List<Frame>();
+        while (frames.Count < 2)
+        {
+            var bytesRead = await client.GetStream().ReadAsync(buffer, timeout.Token);
+            Assert.NotEqual(0, bytesRead);
+            frames.AddRange(parser.Feed(buffer[..bytesRead]));
+        }
+
+        Assert.Equal([20, 21], frames.Select(frame => frame.Sequence).ToArray());
+    }
+
+    [Fact]
+    public async Task UnknownCommand_ReturnsUnsupportedErrorFrame()
+    {
+        await using var server = new SimulatorServer(0);
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        await client.GetStream().WriteAsync(new Frame(0xFF, 22, []).Encode(), timeout.Token);
+        var response = await ReadFrameAsync(client, timeout.Token);
+
+        Assert.Equal(0xFF, response.Command);
+        Assert.Equal(22, response.Sequence);
+        Assert.Equal(new byte[] { 0x01 }, response.Payload.ToArray());
+    }
+
     private static async Task<Frame> ReadFrameAsync(TcpClient client, CancellationToken cancellationToken)
     {
         var parser = new FrameParser();
@@ -304,6 +362,32 @@ public class TcpClientServiceTests
     public async Task SendAsync_DroppedResponse_ThrowsTimeoutAndCleansPending()
     {
         await using var server = new SimulatorServer(0, new FaultOptions { DropProbabilityPercent = 100 });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 100));
+
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_DelayedResponse_ThrowsTimeoutAndCleansPending()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { ResponseDelay = TimeSpan.FromMilliseconds(250) });
+        await server.StartAsync();
+        await using var client = new TcpClientService();
+        await client.ConnectAsync("127.0.0.1", server.Port);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => client.SendAsync(0x01, ReadOnlyMemory<byte>.Empty, 50));
+
+        Assert.Equal(0, client.PendingCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_CrcErrorResponse_ThrowsTimeout()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { CrcErrorResponseNumber = 1 });
         await server.StartAsync();
         await using var client = new TcpClientService();
         await client.ConnectAsync("127.0.0.1", server.Port);
