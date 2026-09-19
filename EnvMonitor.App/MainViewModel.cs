@@ -1,7 +1,11 @@
+using System.Collections.ObjectModel;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EnvMonitor.Communication;
+using LiveChartsCore;
+using LiveChartsCore.Defaults;
+using LiveChartsCore.SkiaSharpView;
 
 namespace EnvMonitor.App;
 
@@ -12,6 +16,10 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _pollTimer;
     private bool _isPolling;
+
+    public ObservableCollection<DateTimePoint> TempSeries { get; } = [];
+
+    public ISeries[] TemperatureSeries { get; }
 
     [ObservableProperty]
     private string status = "Disconnected";
@@ -58,6 +66,11 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
         {
             Interval = TimeSpan.FromSeconds(1)
         };
+        TemperatureSeries = [new LineSeries<DateTimePoint>
+        {
+            Values = TempSeries,
+            GeometrySize = 0
+        }];
         _pollTimer.Tick += PollTimer_Tick;
         _client.ConnectionChanged += OnConnectionChanged;
     }
@@ -142,6 +155,7 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
         else
         {
             _pollTimer.Stop();
+            TempSeries.Clear();
         }
 
         EventMessage = state switch
@@ -173,6 +187,11 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
             Humidity = data.Humidity;
             Pressure = data.Pressure;
             Relay1 = data.Relay == 1;
+            TempSeries.Add(new DateTimePoint(DateTime.Now, data.Temp));
+            while (TempSeries.Count > 120)
+            {
+                TempSeries.RemoveAt(0);
+            }
             UpdateAlarmState();
             Status = IsTemperatureAlarm || IsHumidityAlarm ? "Alarm" : "Connected";
             EventMessage = IsTemperatureAlarm || IsHumidityAlarm
