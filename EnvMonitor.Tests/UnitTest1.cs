@@ -179,6 +179,89 @@ public class SimulatorIntegrationTests
 
         Assert.Equal(0x01, response.Command);
         Assert.Equal(42, response.Sequence);
-        Assert.Equal(new byte[] { 0x00, 0xFA, 0x01, 0xE0, 0x03, 0xF5, 0x00 }, response.Payload.ToArray());
+        Assert.Equal(7, response.Payload.Length);
+        Assert.InRange(ReadInt16(response.Payload.Span[0..2]) / 10.0, 20, 30);
+        Assert.InRange(ReadUInt16(response.Payload.Span[2..4]) / 10.0, 30, 70);
+        Assert.InRange(ReadUInt16(response.Payload.Span[4..6]) / 10.0, 98, 104);
+        Assert.Equal(0, response.Payload.Span[6]);
+    }
+
+    [Fact]
+    public async Task SetRelayAndHeartbeat_ReturnSuccessfulResponses()
+    {
+        await using var server = new SimulatorServer(0);
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        await client.GetStream().WriteAsync(new Frame(0x02, 1, [0x01, 0x01]).Encode(), timeout.Token);
+        var relayResponse = await ReadFrameAsync(client, timeout.Token);
+        Assert.Equal(0x02, relayResponse.Command);
+        Assert.Equal(new byte[] { 0x01 }, relayResponse.Payload.ToArray());
+
+        await client.GetStream().WriteAsync(new Frame(0x03, 2, []).Encode(), timeout.Token);
+        var heartbeatResponse = await ReadFrameAsync(client, timeout.Token);
+        Assert.Equal(0x03, heartbeatResponse.Command);
+        Assert.Empty(heartbeatResponse.Payload.ToArray());
+    }
+
+    [Fact]
+    public async Task DropAllResponses_ProducesNoResponse()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { DropProbabilityPercent = 100 });
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+
+        await client.GetStream().WriteAsync(new Frame(0x01, 3, []).Encode(), timeout.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await client.GetStream().ReadAsync(new byte[64], timeout.Token));
+    }
+
+    [Fact]
+    public async Task CrcErrorOption_ProducesFrameThatParserRejects()
+    {
+        await using var server = new SimulatorServer(0, new FaultOptions { CrcErrorResponseNumber = 1 });
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        await client.GetStream().WriteAsync(new Frame(0x01, 4, []).Encode(), timeout.Token);
+        var buffer = new byte[256];
+        var bytesRead = await client.GetStream().ReadAsync(buffer, timeout.Token);
+        var parser = new FrameParser();
+
+        Assert.Empty(parser.Feed(buffer[..bytesRead]).ToArray());
+    }
+
+    private static async Task<Frame> ReadFrameAsync(TcpClient client, CancellationToken cancellationToken)
+    {
+        var parser = new FrameParser();
+        var buffer = new byte[256];
+
+        while (true)
+        {
+            var bytesRead = await client.GetStream().ReadAsync(buffer, cancellationToken);
+            Assert.NotEqual(0, bytesRead);
+            var frame = parser.Feed(buffer[..bytesRead]).SingleOrDefault();
+            if (frame is not null)
+            {
+                return frame;
+            }
+        }
+    }
+
+    private static short ReadInt16(ReadOnlySpan<byte> bytes)
+    {
+        return (short)((bytes[0] << 8) | bytes[1]);
+    }
+
+    private static ushort ReadUInt16(ReadOnlySpan<byte> bytes)
+    {
+        return (ushort)((bytes[0] << 8) | bytes[1]);
     }
 }
