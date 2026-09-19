@@ -42,11 +42,10 @@
                            Margin="0,4,0,0" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#94A3B8" Margin="0,0,8,0" />
-                <TextBlock x:Name="StatusText" Text="Disconnected" FontSize="15" Foreground="#64748B" VerticalAlignment="Center" />
-                <Button x:Name="ConnectButton"
-                        Content="Connect demo"
-                        Click="ConnectButton_Click"
+                <Ellipse Width="10" Height="10" Fill="#94A3B8" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding Status}" FontSize="15" Foreground="#64748B" VerticalAlignment="Center" />
+                <Button Content="{Binding ConnectButtonText}"
+                    Command="{Binding ConnectCommand}"
                         Margin="22,0,0,0"
                         Padding="18,10"
                         Background="#3478F6"
@@ -66,29 +65,32 @@
             <Border Grid.Column="0" Style="{StaticResource MetricCard}">
                 <StackPanel>
                     <TextBlock Text="TEMPERATURE" Foreground="#64748B" FontWeight="SemiBold" />
-                    <TextBlock x:Name="TemperatureText" Text="25.0 °C" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
+                    <TextBlock Text="{Binding Temperature, StringFormat={}{0:F1} °C}" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
                     <TextBlock Text="Normal range" Foreground="#16A36A" Margin="0,6,0,0" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="1" Style="{StaticResource MetricCard}">
                 <StackPanel>
                     <TextBlock Text="HUMIDITY" Foreground="#64748B" FontWeight="SemiBold" />
-                    <TextBlock x:Name="HumidityText" Text="48.0 %" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
+                    <TextBlock Text="{Binding Humidity, StringFormat={}{0:F1} %}" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
                     <TextBlock Text="Stable" Foreground="#16A36A" Margin="0,6,0,0" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="2" Style="{StaticResource MetricCard}">
                 <StackPanel>
                     <TextBlock Text="PRESSURE" Foreground="#64748B" FontWeight="SemiBold" />
-                    <TextBlock x:Name="PressureText" Text="101.3 kPa" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
+                    <TextBlock Text="{Binding Pressure, StringFormat={}{0:F1} kPa}" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
                     <TextBlock Text="Stable" Foreground="#16A36A" Margin="0,6,0,0" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="3" Background="#172033" CornerRadius="12" Padding="20">
                 <StackPanel>
                     <TextBlock Text="RELAY 1" Foreground="#AAB7CC" FontWeight="SemiBold" />
-                    <TextBlock x:Name="RelayText" Text="OFF" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,12,0,12" />
-                    <Button x:Name="RelayButton" Content="Turn on" Click="RelayButton_Click" Padding="12,8" />
+                    <TextBlock Text="{Binding Relay1, StringFormat={}{0:ON;OFF}}" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,12,0,12" />
+                    <ToggleButton Content="Toggle relay"
+                                  IsChecked="{Binding Relay1, Mode=TwoWay}"
+                                  Command="{Binding ToggleRelayCommand}"
+                                  Padding="12,8" />
                 </StackPanel>
             </Border>
         </Grid>
@@ -109,7 +111,7 @@
             <Border Grid.Column="1" Background="White" CornerRadius="12" Padding="24">
                 <StackPanel>
                     <TextBlock Text="Event log" FontSize="19" FontWeight="SemiBold" Foreground="#172033" />
-                    <TextBlock x:Name="EventText" Text="Application ready." Foreground="#64748B" TextWrapping="Wrap" Margin="0,18,0,0" />
+                    <TextBlock Text="{Binding EventMessage}" Foreground="#64748B" TextWrapping="Wrap" Margin="0,18,0,0" />
                 </StackPanel>
             </Border>
         </Grid>
