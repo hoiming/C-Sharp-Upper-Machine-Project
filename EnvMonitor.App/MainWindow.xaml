@@ -20,6 +20,48 @@
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="#172033" />
         </Style>
+        <Style x:Key="TemperatureValue" BasedOn="{StaticResource MetricValue}" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTemperatureAlarm}" Value="True">
+                    <Setter Property="Foreground" Value="#C53030" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="HumidityValue" BasedOn="{StaticResource MetricValue}" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsHumidityAlarm}" Value="True">
+                    <Setter Property="Foreground" Value="#C53030" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#64748B" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Connected">
+                    <Setter Property="Foreground" Value="#16A36A" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Alarm">
+                    <Setter Property="Foreground" Value="#C53030" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Read timeout">
+                    <Setter Property="Foreground" Value="#B7791F" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="StatusDotStyle" TargetType="Ellipse">
+            <Setter Property="Fill" Value="#94A3B8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Connected">
+                    <Setter Property="Fill" Value="#16A36A" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Alarm">
+                    <Setter Property="Fill" Value="#C53030" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Read timeout">
+                    <Setter Property="Fill" Value="#B7791F" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="32">
@@ -42,8 +84,8 @@
                            Margin="0,4,0,0" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Ellipse Width="10" Height="10" Fill="#94A3B8" Margin="0,0,8,0" />
-                <TextBlock Text="{Binding Status}" FontSize="15" Foreground="#64748B" VerticalAlignment="Center" />
+                <Ellipse Width="10" Height="10" Style="{StaticResource StatusDotStyle}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding Status}" FontSize="15" Style="{StaticResource StatusTextStyle}" VerticalAlignment="Center" />
                 <Button Content="{Binding ConnectButtonText}"
                     Command="{Binding ConnectCommand}"
                         Margin="22,0,0,0"
@@ -51,6 +93,10 @@
                         Background="#3478F6"
                         Foreground="White"
                         BorderThickness="0" />
+                    <Button Content="Reconnect"
+                        Command="{Binding ReconnectCommand}"
+                        Margin="10,0,0,0"
+                        Padding="14,10" />
             </StackPanel>
         </Grid>
 
@@ -65,15 +111,15 @@
             <Border Grid.Column="0" Style="{StaticResource MetricCard}">
                 <StackPanel>
                     <TextBlock Text="TEMPERATURE" Foreground="#64748B" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding Temperature, StringFormat={}{0:F1} °C}" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
-                    <TextBlock Text="Normal range" Foreground="#16A36A" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding Temperature, StringFormat={}{0:F1} °C}" Style="{StaticResource TemperatureValue}" Margin="0,12,0,0" />
+                    <TextBlock Text="{Binding TemperatureState}" Foreground="#16A36A" Margin="0,6,0,0" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="1" Style="{StaticResource MetricCard}">
                 <StackPanel>
                     <TextBlock Text="HUMIDITY" Foreground="#64748B" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding Humidity, StringFormat={}{0:F1} %}" Style="{StaticResource MetricValue}" Margin="0,12,0,0" />
-                    <TextBlock Text="Stable" Foreground="#16A36A" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding Humidity, StringFormat={}{0:F1} %}" Style="{StaticResource HumidityValue}" Margin="0,12,0,0" />
+                    <TextBlock Text="{Binding HumidityState}" Foreground="#16A36A" Margin="0,6,0,0" />
                 </StackPanel>
             </Border>
             <Border Grid.Column="2" Style="{StaticResource MetricCard}">

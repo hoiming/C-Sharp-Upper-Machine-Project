@@ -23,6 +23,12 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
     private string eventMessage = "Application ready.";
 
     [ObservableProperty]
+    private string temperatureState = "Normal range";
+
+    [ObservableProperty]
+    private string humidityState = "Stable";
+
+    [ObservableProperty]
     private double temperature;
 
     [ObservableProperty]
@@ -36,6 +42,12 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     [ObservableProperty]
     private bool isConnected;
+
+    [ObservableProperty]
+    private bool isTemperatureAlarm;
+
+    [ObservableProperty]
+    private bool isHumidityAlarm;
 
     public MainViewModel(IFrameClient client, IDeviceService device, Dispatcher dispatcher)
     {
@@ -88,6 +100,13 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
             Status = $"Relay error: {exception.Message}";
             EventMessage = "Relay command failed; state rolled back.";
         }
+    }
+
+    [RelayCommand]
+    private async Task ReconnectAsync()
+    {
+        await _client.DisconnectAsync();
+        await ConnectAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -154,8 +173,11 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
             Humidity = data.Humidity;
             Pressure = data.Pressure;
             Relay1 = data.Relay == 1;
-            Status = "Connected";
-            EventMessage = "Sensor data updated.";
+            UpdateAlarmState();
+            Status = IsTemperatureAlarm || IsHumidityAlarm ? "Alarm" : "Connected";
+            EventMessage = IsTemperatureAlarm || IsHumidityAlarm
+                ? "Threshold alarm detected."
+                : "Sensor data updated.";
         }
         catch (TimeoutException)
         {
@@ -177,5 +199,13 @@ public partial class MainViewModel : ObservableObject, IAsyncDisposable
         {
             _isPolling = false;
         }
+    }
+
+    private void UpdateAlarmState()
+    {
+        IsTemperatureAlarm = Temperature > 30;
+        IsHumidityAlarm = Humidity > 70;
+        TemperatureState = IsTemperatureAlarm ? "Above threshold" : "Normal range";
+        HumidityState = IsHumidityAlarm ? "Above threshold" : "Stable";
     }
 }
