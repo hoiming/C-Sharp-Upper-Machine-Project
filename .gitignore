@@ -1,0 +1,26 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio and VS Code user state
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+
+# Test and coverage output
+TestResults/
+*.trx
+coverage/
+
+# Runtime logs and local configuration
+logs/
+appsettings.Development.json
+
+# OS files
+.DS_Store
+Thumbs.db

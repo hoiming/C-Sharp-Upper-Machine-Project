@@ -1,0 +1,507 @@
+Day 1：搭骨架 + 协议帧定义
+
+目标：通信核心项目建好，Frame 能按一份明确、可测试的协议编码成字节数组。
+
+做什么：
+
+    建解决方案 EnvMonitor，统一目标框架为 .NET 8，建五个项目：
+
+        EnvMonitor.Protocol（类库）
+
+        EnvMonitor.Communication（类库，TCP 客户端、DeviceService 与接口）
+
+        EnvMonitor.Simulator（控制台）
+
+        EnvMonitor.App（WPF）
+
+        EnvMonitor.Tests（xUnit）
+
+    项目引用关系：Simulator、Communication、Tests 引用 Protocol；App、Tests 引用 Communication。
+
+    在 Protocol 里定义帧格式：
+
+    | 0xAA55 | 总长2B | Cmd1B | Seq2B | Payload NB | CRC16 2B |
+
+    固定协议契约：
+
+        总长为从帧头到 CRC 的总字节数，最小 9，最大 1024；总长和 Seq 均为大端序。
+
+        CRC16 覆盖从帧头第一个字节到 Payload 最后一个字节，不包含 CRC 本身。
+
+        CRC 使用 Modbus 算法，写入顺序为低字节在前、高字节在后；这是大端序规则的唯一例外。
+
+        正常响应复用请求的 Cmd 和 Seq；错误响应 Cmd = 请求 Cmd | 0x80，Payload = ErrorCode 1B。
+
+    写 Frame.Encode() 和 Frame.Decode()，禁止将数组直接暴露为可修改的内部状态。
+
+    写 Crc16.Compute()（Modbus CRC，多项式 0xA001）。
+
+    定义命令表和 Payload：
+
+        0x01 Read：请求为空；响应为 Temp(Int16 BE, /10)、Humidity(UInt16 BE, /10)、Pressure(UInt16 BE, /10)、Relay(Byte)，共 7B。
+
+        0x02 SetRelay：请求与响应均为 Channel(Byte, 当前只允许 1)、On(Byte, 0 或 1)，共 2B。
+
+        0x03 Heartbeat：请求和响应均为空。
+
+        ErrorCode：0x01 非法命令，0x02 非法 Payload，0x03 非法继电器通道。
+
+验收：
+
+    写一个测试：构造 Cmd=0x01, Seq=1, Payload=空，编码后长度 = 9，且总长、Seq、CRC 字节顺序正确。
+
+    写 CRC 标准向量测试：ASCII "123456789" 的 Modbus CRC = 0x4B37；再手动算一帧 CRC，和代码结果一致。
+
+坑：
+
+    长度字段算的是"从帧头到 CRC 的总字节数"，别只算 Payload。
+
+    CRC 低字节在前，高字节在后。
+
+Git：feat: 协议帧定义与编码
+Day 2：拆包器 + 单元测试
+
+目标：粘包、半包、CRC 错和损坏长度都能正确处理并恢复同步。
+
+做什么：
+
+    写 FrameParser.Feed(byte[])，返回 IEnumerable<Frame>。
+
+    处理逻辑：
+
+        找 0xAA 0x55 帧头，前面垃圾丢弃
+
+        长度不合法（<9 或 >1024）丢弃 1 字节重找
+
+        数据不够时保留从候选帧头开始的所有字节，等下次 Feed
+
+        CRC 校验失败只丢弃候选帧头的第一个字节，然后继续找帧头；不得丢弃整段缓存
+
+    写测试用例：
+
+        一次 Feed 完整一帧 → 出 1 帧
+
+        一帧分两次 Feed → 第二次才出帧
+
+        两帧粘在一起 → 出 2 帧
+
+        CRC 错 → 不出帧
+
+        前面有垃圾字节 → 能跳过
+
+        CRC 错帧后紧跟合法帧 → 能恢复并产出合法帧
+
+        非法长度后紧跟合法帧、帧头被分成两次 Feed → 都能恢复
+
+验收：上述 7 个测试全绿。
+
+坑：
+
+    List<byte> 频繁 RemoveRange(0, n) 性能差，但学习阶段无所谓。
+
+    循环里 yield return 和 yield break 别写错，否则会死循环。
+
+Git：feat: 拆包器与协议单元测试
+Day 3：模拟下位机 TCP 服务
+
+目标：模拟器能启动、接受连接、按命令表回复，并可被集成测试可靠地启停。
+
+做什么：
+
+    TcpListener 默认监听 127.0.0.1:9000；测试时允许传入端口 0，并公开实际绑定端口。
+
+    每个客户端一个 Task，每个连接独享 FrameParser；VirtualDevice 的共享状态访问必须同步。
+
+    读字节 → FrameParser.Feed → 对每个 Frame 调 VirtualDevice.Handle → 回写 resp.Encode()。
+
+    VirtualDevice 先支持 Cmd=0x01，返回命令表规定的 7B 传感器 Payload，温度固定为 25.0，其余字段使用固定合法值。
+
+    Payload 编码：温度 short = 250，大端写入 2 字节。
+
+验收：
+
+    模拟器启动，控制台打印"监听 9000"。
+
+    模拟器提供 StartAsync/StopAsync(CancellationToken)；用 EnvMonitor.Tests 写集成测试：端口 0 起模拟器 → TcpClient 连上 → 发一帧 → 校验响应 → finally 停止模拟器。
+
+坑：
+
+    TcpListener 要 Start() 后才 AcceptTcpClientAsync()。
+
+    NetworkStream.ReadAsync 返回 0 表示对端关闭，要 break。
+
+Git：feat: 模拟下位机 TCP 服务
+Day 4：虚拟设备数据 + 故障注入
+
+目标：数据会波动，故障可按概率或按固定次数复现，便于自动化验证。
+
+做什么：
+
+    VirtualDevice 加温度/湿度/压力，每次 Handle 时随机小幅波动。
+
+    支持 Cmd=0x02 写继电器、Cmd=0x03 心跳。
+
+    加故障注入开关（用命令行参数或控制台按键）：
+
+        --drop 30：30% 概率不回复
+
+        --delay 2000：延迟 2 秒回复
+
+        --close-after 10：10 秒后断开
+
+        --crc-error 3：第 3 个响应故意损坏 CRC
+
+        --fragment：每帧拆成两次 WriteAsync
+
+        --coalesce：将连续两个响应合并为一次写入
+
+    为测试提供等价的强类型 FaultOptions（可指定第 N 帧故障）；命令行参数仅作为演示入口。
+
+    控制台打印每次收到和发出的帧，方便调试；日志中标明是否注入了故障。
+
+验收：
+
+    连续发 10 次读命令，能看到温度小幅变化。
+
+    开 --drop 30，上位机测试客户端会超时。
+
+坑：
+
+    随机数用 Random.Shared（.NET 6+）避免锁。
+
+    延迟用 await Task.Delay，别用 Thread.Sleep 阻塞。
+
+Git：feat: 虚拟设备数据与故障注入
+Day 5：上位机 TCP 客户端
+
+目标：能安全地连接、并发发请求、收响应、超时和断线清理。
+
+做什么：
+
+    EnvMonitor.Communication 建 IFrameClient 和 TcpClientService.cs；App 只依赖接口，不直接操作 Frame。
+
+    字段：TcpClient、NetworkStream、FrameParser、ConcurrentDictionary<ushort, TaskCompletionSource<Frame>>、_seq、写入 SemaphoreSlim、连接 CancellationTokenSource。
+
+    ConnectAsync(host, port)：连接 + 启动接收循环。
+
+    ReceiveLoop：读 → Feed → 按 Seq 匹配 TCS。
+
+    SendAsync(cmd, payload, timeoutMs)：
+
+        原子生成未被占用的 Seq，注册带 RunContinuationsAsynchronously 的 TCS
+
+        获取写锁后写流，finally 释放写锁
+
+        Task.WhenAny(tcs.Task, Task.Delay(timeout, cancellationToken))
+
+        超时、取消或写入失败时从字典移除 TCS；超时抛 TimeoutException
+
+    Disconnect()：取消 CTS，关闭连接，并用 ObjectDisposedException 或 IOException 完成所有未决 TCS。
+
+    收到错误响应时按 Seq 完成对应 TCS，并由业务层转换为有意义的异常；无法匹配 Seq 的帧触发 UnsolicitedFrame。
+
+验收：
+
+    控制台或临时按钮调用 ConnectAsync + SendAsync(0x01)，能拿到响应。
+
+    并发发多个请求时响应均能按 Seq 匹配；模拟器开 --drop，SendAsync 抛超时且 Pending 数量回到 0。
+
+坑：
+
+    TaskCompletionSource 要用 RunContinuationsAsynchronously，否则可能死锁。
+
+    接收循环异常要 catch，否则 Task 静默死掉。
+
+Git：feat: 上位机 TCP 客户端与超时
+Day 6：自动重连 + 连接状态
+
+目标：意外断线后自动重连，手动断开不重连，UI 能感知状态。
+
+做什么：
+
+    TcpClientService 保存目标 host/port，加 event Action<ConnectionState> ConnectionChanged；状态至少包括 Connecting、Connected、Disconnected、Reconnecting。
+
+    接收循环结束或异常时触发 ConnectionChanged(ConnectionState.Disconnected)。
+
+    仅由意外断线启动唯一的自动重连循环：指数退避 1s、2s、4s、8s、最大 30s；手动 Disconnect 会取消该循环。
+
+    加 event Action<Frame> UnsolicitedFrame，为以后主动上报留口子。
+
+验收：
+
+    模拟器 --close-after 10，10 秒后上位机状态变为 Disconnected，然后自动重连成功。
+
+    日志能看到重连间隔递增。
+
+坑：
+
+    重连要用新的 TcpClient，旧的 Close() 掉；重连成功后退避间隔重置。
+
+    每次新连接使用新的 CTS，别复用已 cancel 的；事件在后台线程触发，WPF 层必须通过 Dispatcher 更新绑定属性。
+
+Git：feat: 自动重连与连接状态事件
+Day 7：业务服务层
+
+目标：UI 不直接碰 Frame，只碰强类型。
+
+做什么：
+
+    定义 record SensorData(double Temp, double Humidity, double Pressure, byte Relay) 和 IDeviceService。
+
+    DeviceService：
+
+        ReadAsync() → 发 0x01，解析 Payload 成 SensorData
+
+        SetRelayAsync(ch, on) → 发 0x02
+
+        HeartbeatAsync() → 发 0x03
+
+    解析注意：short 大端，/10.0 还原。
+
+    在 EnvMonitor.Tests 里用 IFrameClient 假实现测 DeviceService 的正常、错误响应和错误 Payload；模拟器集成测试只覆盖端到端协议。
+
+验收：
+
+    集成测试：连模拟器 → ReadAsync → 温度在 20-30 之间。
+
+    SetRelayAsync(1, true) 后再 ReadAsync，Relay 字段为 1。
+
+坑：
+
+    (short)((p[0] << 8) | p[1]) 要先转 short 再除，别先除。
+
+    Payload 长度要校验，防止越界。
+
+Git：feat: 业务服务层与数据解析
+Day 8：WPF 基础 + MVVM 接线
+
+目标：窗口能显示连接状态、温度、按钮。
+
+做什么：
+
+    装 NuGet：CommunityToolkit.Mvvm。
+
+    MainViewModel：
+
+        注入 TcpClientService、DeviceService
+
+        [ObservableProperty] 声明 Status、Temperature、Humidity、Pressure、Relay1
+
+        [RelayCommand] 声明 ConnectCommand、ToggleRelayCommand
+
+    MainWindow.xaml：
+
+        顶部：连接按钮 + 状态文本
+
+        中部：三个数值 TextBlock
+
+        底部：继电器 ToggleButton
+
+    App.xaml.cs 手动构造 Communication 服务和 ViewModel 并塞给 DataContext（先不上 DI 容器）；关闭窗口时 await 服务 DisposeAsync/DisconnectAsync。
+
+验收：
+
+    点连接 → 状态变"已连接"。
+
+    数值不刷新（还没做轮询），但界面不报错。
+
+坑：
+
+    [ObservableProperty] 字段名小写，生成的属性名首字母大写。
+
+    XAML 绑定写错不报错，只看输出窗口的绑定错误。
+
+Git：feat: WPF 基础界面与 MVVM 接线
+Day 9：轮询 + 数据刷新
+
+目标：每秒读一次，UI 实时更新。
+
+做什么：
+
+    MainViewModel 加 DispatcherTimer，间隔 1 秒。
+
+    Tick 里 await _dev.ReadAsync()，赋值给属性。
+
+    连接成功启动 timer，断开停止。
+
+    异常处理：
+
+        TimeoutException → Status = "读取超时"
+
+        其他异常 → Status = 异常消息
+
+    继电器命令：先改 UI，失败回滚。
+
+验收：
+
+    连接后温度每秒变化。
+
+    模拟器 --drop 30，UI 偶尔显示"读取超时"，不崩溃。
+
+    点继电器，模拟器状态跟着变。
+
+坑：
+
+    DispatcherTimer 的 Tick 是 async void，异常要 try-catch 全包。
+
+    轮询没结束就下一次 Tick 会重入，加个 _isPolling 标志。
+
+Git：feat: 轮询与实时数据刷新
+Day 10：UI 美化 + 报警
+
+目标：界面像个上位机，超阈值变色。
+
+做什么：
+
+    用 Grid 分区域：左上数据卡片、右上继电器、下方曲线预留。
+
+    状态用颜色：绿=已连接，红=断开，黄=超时。
+
+    温度超 30 或湿度超 70，数值变红，Status 显示"报警"。
+
+    加"手动重连"按钮。
+
+验收：
+
+    模拟器把温度波动调大，UI 能触发红色报警。
+
+    断开模拟器，状态变红，重连按钮可用。
+
+坑：
+
+    颜色绑定用 IValueConverter 或 DataTrigger，别在代码里直接改控件。
+
+    报警别每秒弹窗，用状态栏 + 颜色即可。
+
+Git：feat: UI 美化与阈值报警
+Day 11：实时曲线
+
+目标：温度曲线滚动显示最近 2 分钟。
+
+做什么：
+
+    装 NuGet：LiveChartsCore.SkiaSharpView.WPF。
+
+    ViewModel 加 ObservableCollection<DateTimePoint> TempSeries。
+
+    每次轮询 Add 一个点，超过 120 个 RemoveAt(0)。
+
+    XAML 加 CartesianChart，X 轴时间，Y 轴温度。
+
+    断开连接时清空曲线。
+
+验收：
+
+    曲线每秒右移，保留 2 分钟。
+
+    断开后曲线停止。
+
+坑：
+
+    LiveCharts2 的 DateTimePoint 在 LiveChartsCore.Defaults 命名空间。
+
+    UI 线程更新集合，别在后台线程 Add。
+
+Git：feat: 实时温度曲线
+Day 12：日志 + 配置
+
+目标：Serilog 写文件，IP/端口/周期可配。
+
+做什么：
+
+    装 NuGet：Serilog、Serilog.Sinks.File。
+
+    App.xaml.cs 初始化 Serilog，写 logs/app-.log。
+
+    通信层关键点打日志：连接、断开、超时、重连、异常。
+
+    加 appsettings.json，设置 CopyToOutputDirectory，配 IP、端口、轮询周期、温湿度阈值与请求超时；使用 Microsoft.Extensions.Configuration 绑定强类型配置并在启动时校验范围。
+
+    UI 加"日志"按钮，打开日志文件夹。
+
+验收：
+
+    跑 5 分钟，日志文件有连接、轮询、超时记录。
+
+    改配置文件端口，重启后连新端口。
+
+坑：
+
+    Serilog 默认不写异常堆栈，要 Log.Error(ex, "msg")。
+
+    配置读取用 Microsoft.Extensions.Configuration，别手写解析。
+
+Git：feat: Serilog 日志与配置
+Day 13：异常测试 + 断线重连验证
+
+目标：7 种异常场景全过。
+
+做什么：逐项测，记录结果：
+场景	模拟器操作	期望
+丢帧	--drop 30	超时提示，不崩
+延迟	--delay 2000	超时或等待
+CRC 错	--crc-error 3	静默丢弃
+断线	--close-after 10	状态红，自动重连
+粘包	连续发两帧	正确拆
+半包	分两次发	正确拼
+非法命令	发 0xFF	提示不支持
+
+发现 bug 就修，修完在 README 记录。
+
+验收：7 项全过，截图存档。
+
+Git：test: 异常场景验证与修复
+Day 14：收尾 + 录屏 + README
+
+目标：能拿出去演示。
+
+做什么：
+
+    README 写：
+
+        项目简介、架构图（画个简单的）
+
+        协议文档（帧格式 + 命令表）
+
+        运行步骤（先起模拟器，再起上位机）
+
+        异常测试结果截图
+
+    录 2 分钟视频：连接 → 数据刷新 → 曲线 → 继电器 → 断线重连 → 报警。
+
+    清理代码：删调试输出，整理命名空间。
+
+    打 tag v1.0。
+
+验收：
+
+    别人 clone 下来能跑起来。
+
+    视频能讲清"我做了什么、怎么处理异常"。
+
+Git：docs: README 与演示视频
+每天收工前的 3 件事
+
+    git add . && git commit -m "..."，消息写清做了什么。
+
+    在 README 的"开发日志"里加一行：Day N 完成了什么、遇到什么问题。
+
+    明天要做的第一件事写下来，避免第二天开头发呆。
+
+如果某天卡住超过 30 分钟
+
+    先跳过，用 TODO 注释标记，继续往下做。
+
+    周末或最后一天回头补。
+
+    卡点发我，我帮你看。
+
+最后提醒
+
+    Day 1-7 是核心，协议和通信层写扎实，UI 是水到渠成。
+
+    别提前做曲线、数据库、报警，先把最小闭环跑通。
+
+    异常处理是面试重点，Day 13 的测试结果比 UI 好看更重要。
+
+    每天 2 小时足够，关键是每天都提交，别断。
