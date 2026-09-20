@@ -545,3 +545,55 @@ file sealed class FakeFrameClient : IFrameClient
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
+
+public class LedServiceTests
+{
+    [Fact]
+    public async Task SetLedAsync_SendsLedCommandAndReturnsState()
+    {
+        ReadOnlyMemory<byte> sentPayload = default;
+        var client = new FakeSerialFrameClient((command, payload, _, _) =>
+        {
+            sentPayload = payload;
+            return Task.FromResult(new Frame(command, 1, [0x01, 0x01]));
+        });
+        var service = new LedService(client);
+
+        var state = await service.SetLedAsync(1, true);
+
+        Assert.True(state);
+        Assert.Equal(new byte[] { 0x01, 0x01 }, sentPayload.ToArray());
+    }
+
+    [Fact]
+    public async Task GetLedAsync_ErrorResponse_ThrowsDeviceError()
+    {
+        var client = new FakeSerialFrameClient((_, _, _, _) =>
+            Task.FromResult(new Frame(0x91, 1, [0x03])));
+        var service = new LedService(client);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetLedAsync(1));
+    }
+}
+
+file sealed class FakeSerialFrameClient : ISerialFrameClient
+{
+    private readonly Func<byte, ReadOnlyMemory<byte>, int, CancellationToken, Task<Frame>> _send;
+
+    public FakeSerialFrameClient(Func<byte, ReadOnlyMemory<byte>, int, CancellationToken, Task<Frame>> send)
+    {
+        _send = send;
+    }
+
+    public bool IsConnected => true;
+
+    public Task ConnectAsync(string portName, int baudRate, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task<Frame> SendAsync(byte command, ReadOnlyMemory<byte> payload, int timeoutMs, CancellationToken cancellationToken = default)
+        => _send(command, payload, timeoutMs, cancellationToken);
+
+    public Task DisconnectAsync() => Task.CompletedTask;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

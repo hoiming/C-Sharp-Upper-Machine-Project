@@ -65,7 +65,9 @@
         </Style>
     </Window.Resources>
 
-    <Grid Margin="32">
+    <TabControl Margin="20">
+        <TabItem Header="Environment monitor">
+            <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -163,5 +165,86 @@
                 </StackPanel>
             </Border>
         </Grid>
-    </Grid>
+            </Grid>
+        </TabItem>
+        <TabItem Header="STM32 LED">
+            <Grid DataContext="{Binding LedViewModel, RelativeSource={RelativeSource AncestorType=Window}}" Margin="28">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="STM32F103C8T6" FontSize="30" FontWeight="Bold" Foreground="#172033" />
+                    <TextBlock Text="USB CDC serial control for the PC13 onboard LED"
+                               Foreground="#64748B"
+                               Margin="0,6,0,0" />
+                </StackPanel>
+
+                <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="22" Margin="0,24,0,18">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="160" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="COM PORT" Foreground="#64748B" FontWeight="SemiBold" />
+                            <ComboBox ItemsSource="{Binding AvailablePorts}"
+                                      SelectedItem="{Binding SelectedPort, Mode=TwoWay}"
+                                      Margin="0,8,12,0" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="BAUD RATE" Foreground="#64748B" FontWeight="SemiBold" />
+                            <ComboBox SelectedValue="{Binding BaudRate, Mode=TwoWay}"
+                                      SelectedValuePath="Tag"
+                                      Margin="0,8,12,0">
+                                <ComboBoxItem Content="115200" Tag="115200" />
+                                <ComboBoxItem Content="57600" Tag="57600" />
+                                <ComboBoxItem Content="9600" Tag="9600" />
+                            </ComboBox>
+                        </StackPanel>
+                        <Button Grid.Column="2"
+                                Content="Refresh ports"
+                                Command="{Binding RefreshPortsCommand}"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,12,0"
+                                Padding="12,8" />
+                        <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Status}" FontSize="18" FontWeight="SemiBold" Foreground="#172033" />
+                            <TextBlock Text="{Binding EventMessage}" Foreground="#64748B" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="4"
+                                Content="{Binding ConnectButtonText}"
+                                Command="{Binding ConnectCommand}"
+                                VerticalAlignment="Center"
+                                Padding="16,10"
+                                Background="#3478F6"
+                                Foreground="White"
+                                BorderThickness="0" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Background="#172033" CornerRadius="12" Padding="32" MaxWidth="520" HorizontalAlignment="Left" VerticalAlignment="Top">
+                    <StackPanel>
+                        <TextBlock Text="BOARD LED" Foreground="#AAB7CC" FontWeight="SemiBold" />
+                        <TextBlock Text="PC13" Foreground="White" FontSize="18" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding LedOn, StringFormat={}{0:ON;OFF}}" Foreground="White" FontSize="48" FontWeight="Bold" Margin="0,12,0,18" />
+                        <ToggleButton Content="Toggle PC13 LED"
+                                      IsChecked="{Binding LedOn, Mode=TwoWay}"
+                                      Command="{Binding ToggleLedCommand}"
+                                      IsEnabled="{Binding IsConnected}"
+                                      Padding="16,10" />
+                        <TextBlock Text="Common STM32F103C8T6 boards use active-low PC13 LED logic."
+                                   Foreground="#AAB7CC"
+                                   TextWrapping="Wrap"
+                                   Margin="0,18,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </TabItem>
+    </TabControl>
 </Window>

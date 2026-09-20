@@ -9,6 +9,7 @@ namespace EnvMonitor.App;
 public partial class App : Application
 {
 	private MainViewModel? _viewModel;
+	private LedTabViewModel? _ledViewModel;
 
 	protected override void OnStartup(StartupEventArgs e)
 	{
@@ -37,8 +38,11 @@ public partial class App : Application
 			var client = new TcpClientService();
 			var device = new DeviceService(client, settings.Device.RequestTimeoutMs);
 			_viewModel = new MainViewModel(client, device, Dispatcher, settings);
+			var serialClient = new SerialFrameClient();
+			var ledService = new LedService(serialClient, settings.Device.RequestTimeoutMs);
+			_ledViewModel = new LedTabViewModel(serialClient, ledService);
 
-			MainWindow = new MainWindow(_viewModel);
+			MainWindow = new MainWindow(_viewModel, _ledViewModel);
 			MainWindow.Show();
 		}
 		catch (Exception exception)
@@ -51,6 +55,7 @@ public partial class App : Application
 
 	protected override void OnExit(ExitEventArgs e)
 	{
+		_ledViewModel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_viewModel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		Log.Information("Application stopped");
 		Log.CloseAndFlush();

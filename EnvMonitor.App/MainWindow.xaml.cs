@@ -7,8 +7,11 @@ namespace EnvMonitor.App;
 /// </summary>
 public partial class MainWindow : Window
 {
-    public MainWindow(MainViewModel viewModel)
+    public LedTabViewModel LedViewModel { get; }
+
+    public MainWindow(MainViewModel viewModel, LedTabViewModel ledViewModel)
     {
+        LedViewModel = ledViewModel;
         InitializeComponent();
         DataContext = viewModel;
     }

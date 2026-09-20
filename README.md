@@ -1,6 +1,6 @@
 # EnvMonitor
 
-一个不依赖真实下位机的 C# 环境监控上位机 Demo。项目使用 TCP 模拟下位机，完整演示协议帧、拆包、超时、断线重连、WPF 监控界面和异常注入。
+一个同时支持 TCP 模拟下位机和 STM32F103C8T6 实物联调的 C# 环境监控上位机 Demo。项目保留 TCP 模拟器，并在 WPF 中增加 STM32 LED 控制页签，通过 USB CDC/串口控制常见 PC13 板载 LED。
 
 ## 项目结构
 
@@ -19,6 +19,7 @@ graph TD
 - `EnvMonitor.Simulator`: 虚拟传感器和故障注入 TCP 服务
 - `EnvMonitor.App`: WPF MVVM 监控界面、报警和实时曲线
 - `EnvMonitor.Tests`: 协议、服务、TCP 和异常场景测试
+- `firmware`: STM32F103C8T6 的 CubeIDE/CubeMX 固件接入说明
 
 ## 环境要求
 
@@ -41,6 +42,8 @@ dotnet run --project EnvMonitor.App
 ```
 
 点击 `Connect` 后，界面会每秒读取传感器数据。可以操作继电器、查看温度曲线和观察连接状态。
+
+WPF 的第二个 `STM32 LED` 页签用于真实开发板：选择 COM 口和波特率，点击连接后即可发送 PC13 LED 控制命令。没有开发板时，第一个 `Environment monitor` 页签和 TCP 模拟器仍可独立运行。
 
 配置文件位于 `EnvMonitor.App/appsettings.json`，可修改：
 
@@ -93,6 +96,18 @@ dotnet run --project EnvMonitor.Simulator -- --port 9000 --drop 30 --delay 2000
 - `--crc-error 3`: 第 3 个响应损坏 CRC
 - `--fragment`: 将响应拆成两次写入
 - `--coalesce`: 将同一批次的多个响应合并写入
+
+## STM32F103C8T6 联调
+
+当前上位机通过 USB CDC 或 UART 虚拟串口连接 STM32。常见板载 LED 使用 PC13，通常为低电平点亮。详细的 CubeMX 配置、协议和联调步骤见 [firmware/README.md](firmware/README.md)。
+
+STM32 LED 命令：
+
+| Cmd              | 请求 Payload | 响应 Payload |
+| ---------------- | ------------ | ------------ |
+| `0x10` SetLed    | LedId、State | LedId、State |
+| `0x11` GetLed    | LedId        | LedId、State |
+| `0x03` Heartbeat | 空           | 空           |
 
 ## 测试与构建
 
