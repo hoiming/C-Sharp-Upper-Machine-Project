@@ -12,7 +12,7 @@
 4. USART1 配置为 Asynchronous：115200、8N1、无硬件流控。
 5. 为 USART1 添加 `RX DMA`，方向为 `Peripheral to Memory`，数据宽度 Byte，模式选择 `Circular`，Memory Increment 开启，Peripheral Increment 关闭。
 6. 在 DMA Settings 中确认 RX DMA 已链接到 USART1；重新生成代码后应存在 `MX_DMA_Init()` 和 `huart1.hdmarx`。
-7. 第一阶段可以改用 USART1：PA9 TX、PA10 RX，通过 USB-TTL 连接电脑。
+7. 当前联调使用 USART1：PA9 TX、PA10 RX，通过 USB-TTL 连接电脑；USB CDC 是后续可选方案。
 8. 当前固件使用 `serial_dma.c` 在主循环轮询 DMA 写入位置，不再使用逐字节 `HAL_UART_Receive_IT()`。
 9. 时钟、DMA、USART 和 GPIO 初始化代码由 CubeMX 生成，不要手写替换。
 
@@ -73,9 +73,7 @@ DMA 缓冲区大小为 256 字节。`SerialDma_Process()` 根据 DMA 当前剩�
 4. 用上位机第二个 `STM32 LED` Tab 连接 COM 口。
 5. 点击 `Toggle PC13 LED`，确认返回帧和实际灯状态一致。
 
-
-
 心跳，打开，关闭的三个报文分别是：
 AA 55 00 09 03 00 01 2F 53
 AA 55 00 0B 10 00 02 01 01 E8 7C
-AA 55 00 0B 10 00 03 01 00 78 7C 
+AA 55 00 0B 10 00 03 01 00 78 7C

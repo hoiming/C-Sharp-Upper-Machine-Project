@@ -177,7 +177,7 @@
 
                 <StackPanel Grid.Row="0">
                     <TextBlock Text="STM32F103C8T6" FontSize="30" FontWeight="Bold" Foreground="#172033" />
-                    <TextBlock Text="USB CDC serial control for the PC13 onboard LED"
+                    <TextBlock Text="USB-TTL / USART1 control for the PC13 onboard LED"
                                Foreground="#64748B"
                                Margin="0,6,0,0" />
                 </StackPanel>
@@ -238,6 +238,11 @@
                                       Command="{Binding ToggleLedCommand}"
                                       IsEnabled="{Binding IsConnected}"
                                       Padding="16,10" />
+                            <Button Content="Read LED state"
+                                  Command="{Binding ReadLedCommand}"
+                                  IsEnabled="{Binding IsConnected}"
+                                  Padding="16,10"
+                                  Margin="0,10,0,0" />
                         <TextBlock Text="Common STM32F103C8T6 boards use active-low PC13 LED logic."
                                    Foreground="#AAB7CC"
                                    TextWrapping="Wrap"

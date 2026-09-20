@@ -117,6 +117,24 @@ public partial class LedTabViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    [RelayCommand]
+    private async Task ReadLedAsync()
+    {
+        try
+        {
+            LedOn = await _ledService.GetLedAsync(1);
+            Status = "Connected";
+            EventMessage = $"PC13 LED is currently {(LedOn ? "on" : "off")}.";
+            Log.Information("Read STM32 PC13 LED state: {State}", LedOn ? "on" : "off");
+        }
+        catch (Exception exception)
+        {
+            Status = "Command failed";
+            EventMessage = exception.Message;
+            Log.Error(exception, "STM32 LED state query failed");
+        }
+    }
+
     private async Task DisconnectAsync()
     {
         await _client.DisconnectAsync();
