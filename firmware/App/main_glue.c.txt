@@ -1,0 +1,32 @@
+/* Copy these parts into the CubeMX-generated Core/Src/main.c user-code sections. */
+
+/* USER CODE BEGIN Includes */
+#include "protocol.h"
+#include "serial_dma.h"
+/* USER CODE END Includes */
+
+/* USER CODE BEGIN PV */
+/* RX is handled by the circular DMA buffer in serial_dma.c. */
+/* USER CODE END PV */
+
+/* USER CODE BEGIN 2 */
+Protocol_Init();
+if (SerialDma_Start(&huart1) != HAL_OK)
+{
+    Error_Handler();
+}
+/* USER CODE END 2 */
+
+/* USER CODE BEGIN WHILE */
+while (1)
+{
+    SerialDma_Process();
+    Protocol_Process();
+    HAL_Delay(1);
+}
+/* USER CODE END WHILE */
+
+/* USER CODE BEGIN 4 */
+/* Do not add HAL_UART_RxCpltCallback for this version.
+   RX bytes are drained from circular DMA in SerialDma_Process(). */
+/* USER CODE END 4 */
